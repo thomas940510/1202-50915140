@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Firebase 筆記管理系統</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
+  <!-- SweetAlert2 引入 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body>
+  <!-- 登入畫面 -->
+  <div id="login-container" class="d-flex justify-content-center align-items-center vh-100">
+    <button id="login-btn" class="btn btn-primary">使用 Google 登入</button>
+    <p id="last-login-time" class="mt-3"></p> <!-- 顯示最後登入時間 -->
+  </div>
+
+  <!-- 主畫面 -->
+  <div id="main-container" class="container mt-5 d-none">
+    <div class="text-end">
+      <button id="logout-btn" class="btn btn-danger">登出</button>
+    </div>
+    <h1 class="my-4">歡迎，<span id="user-name"></span></h1>
+    <p>電子郵件：<span id="user-email"></span></p>
+    <img id="user-photo" src="" alt="使用者照片" class="rounded-circle" width="100">
+    
+    <hr>
+    <h2>您的筆記</h2>
+    <button id="add-note-btn" class="btn btn-success mb-3" data-bs-toggle="modal" data-bs-target="#noteModal">新增筆記</button>
+    <ul id="notes-list" class="list-group"></ul>
+  </div>
+
+  <!-- 新增/編輯筆記的 Modal -->
+  <div class="modal fade" id="noteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalTitle">新增/編輯筆記</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="note-form">
+            <div class="mb-3">
+              <label for="note-title" class="form-label">標題</label>
+              <input type="text" class="form-control" id="note-title" required>
+            </div>
+            <div class="mb-3">
+              <label for="note-content" class="form-label">內容</label>
+              <textarea class="form-control" id="note-content" rows="3" required></textarea>
+            </div>
+            <input type="hidden" id="note-id">
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="button" id="save-note-btn" class="btn btn-primary">儲存筆記</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // Import Firebase SDKs
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-analytics.js";
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
+    import { getDatabase, ref, push, get, update, remove, onValue } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+
+    // Firebase 配置
+    const firebaseConfig = {
+      apiKey: "AIzaSyBD1SV9Cl60jQS2cUpGouKKczcyeiMLY7E",
+      authDomain: "project-3091829099628985893.firebaseapp.com",
+      projectId: "project-3091829099628985893",
+      storageBucket: "project-3091829099628985893.firebasestorage.app",
+      messagingSenderId: "771970043826",
+      appId: "1:771970043826:web:617624a943b114c9da1eab",
+      measurementId: "G-C4XGTN8YD2"
+    };
+
+    // 初始化 Firebase
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+    const auth = getAuth(app);
+    const database = getDatabase(app);
+
+    // 元件
+    const loginContainer = document.getElementById("login-container");
+    const mainContainer = document.getElementById("main-container");
+    const loginBtn = document.getElementById("login-btn");
+    const logoutBtn = document.getElementById("logout-btn");
+    const userName = document.getElementById("user-name");
+    const userEmail = document.getElementById("user-email");
+    const userPhoto = document.getElementById("user-photo");
+    const notesList = document.getElementById("notes-list");
+    const addNoteBtn = document.getElementById("add-note-btn");
+    const noteTitle = document.getElementById("note-title");
+    const noteContent = document.getElementById("note-content");
+    const noteId = document.getElementById("note-id");
+    const saveNoteBtn = document.getElementById("save-note-btn");
+    const lastLoginTime = document.getElementById("last-login-time");
+
+    // Google 登入
+    loginBtn.addEventListener("click", () => {
+      const provider = new GoogleAuthProvider();
+      signInWithPopup(auth, provider)
+        .then((result) => {
+          // 登入後記錄最後登入時間
+          const user = result.user;
+          const uid = user.uid;
+          const timestamp = new Date().toISOString();
+          update(ref(database, `users/${uid}`), { lastLogin: timestamp });
+
+          // 顯示 SweetAlert2 訊息
+          Swal.fire({
+            title: '登入成功',
+            text: '歡迎回來！',
+            icon: 'success',
+            confirmButtonText: '確定'
+          });
+        })
+        .catch((error) => {
+          Swal.fire({
+            title: '登入失敗',
+            text: error.message,
+            icon: 'error',
+            confirmButtonText: '再試一次'
+          });
+        });
+    });
+
+    // 登出
+    logoutBtn.addEventListener("click", () => {
+      Swal.fire({
+        title: '確定登出?',
+        text: "您將會登出目前帳號",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: '確定登出',
+        cancelButtonText: '取消'
+      }).then((result) => {
+        if (result.isConfirmed) {
+          signOut(auth).then(() => {
+            window.location.reload();
+          });
+        }
+      });
+    });
+
+    // 顯示使用者資料
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        loginContainer.classList.add("d-none");
+        mainContainer.classList.remove("d-none");
+        userName.textContent = user.displayName;
+        userEmail.textContent = user.email;
+        userPhoto.src = user.photoURL || "https://www.w3schools.com/w3images/avatar2.png";
+
+        // 顯示最後登入時間
+        const uid = user.uid;
+        get(ref(database, `users/${uid}`)).then((snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            lastLoginTime.textContent = `最後登入時間：${data.lastLogin}`;
+          }
+        });
+
+        // 顯示筆記
+        get(ref(database, `notes/${uid}`)).then((snapshot) => {
+          if (snapshot.exists()) {
+            notesList.innerHTML = "";
+            snapshot.forEach((childSnapshot) => {
+              const note = childSnapshot.val();
+              const li = document.createElement("li");
+              li.classList.add("list-group-item");
+              li.innerHTML = `
+                <h5>${note.title}</h5>
+                <p>${note.content}</p>
+                <button class="btn btn-warning btn-sm edit-btn" data-id="${childSnapshot.key}">編輯</button>
+                <button class="btn btn-danger btn-sm delete-btn" data-id="${childSnapshot.key}">刪除</button>
+              `;
+              notesList.appendChild(li);
+            });
+          }
+        });
+
+        // 新增筆記
+        addNoteBtn.addEventListener("click", () => {
+          noteTitle.value = "";
+          noteContent.value = "";
+          noteId.value = "";
+          saveNoteBtn.textContent = "儲存筆記";
+          document.getElementById("modalTitle").textContent = "新增筆記";
+        });
+
+        // 編輯筆記
+        notesList.addEventListener("click", (e) => {
+          if (e.target.classList.contains("edit-btn")) {
+            const noteIdValue = e.target.getAttribute("data-id");
+            get(ref(database, `notes/${uid}/${noteIdValue}`)).then((snapshot) => {
+              const note = snapshot.val();
+              noteTitle.value = note.title;
+              noteContent.value = note.content;
+              noteId.value = noteIdValue;
+              saveNoteBtn.textContent = "更新筆記";
+              document.getElementById("modalTitle").textContent = "編輯筆記";
+              new bootstrap.Modal(document.getElementById("noteModal")).show();
+            });
+          }
+          if (e.target.classList.contains("delete-btn")) {
+            const noteIdValue = e.target.getAttribute("data-id");
+            remove(ref(database, `notes/${uid}/${noteIdValue}`)).then(() => {
+              Swal.fire("成功", "筆記已刪除", "success");
+            });
+          }
+        });
+
+        // 儲存筆記
+        saveNoteBtn.addEventListener("click", () => {
+          const title = noteTitle.value;
+          const content = noteContent.value;
+          if (!title || !content) {
+            Swal.fire("錯誤", "標題和內容必須填寫", "error");
+            return;
+          }
+          if (noteId.value) {
+            // 更新筆記
+            update(ref(database, `notes/${uid}/${noteId.value}`), { title, content }).then(() => {
+              Swal.fire("成功", "筆記已更新", "success");
+            });
+          } else {
+            // 新增筆記
+            push(ref(database, `notes/${uid}`), { title, content }).then(() => {
+              Swal.fire("成功", "筆記已新增", "success");
+            });
+          }
+          document.getElementById("noteModal").querySelector(".btn-close").click();
+        });
+      } else {
+        loginContainer.classList.remove("d-none");
+        mainContainer.classList.add("d-none");
+      }
+    });
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
